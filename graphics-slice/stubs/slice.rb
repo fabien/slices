@@ -27,5 +27,6 @@ module GraphicsSlice
       generate_label(string, :pointsize => 18, :background => 'black', :fill => 'red', :alpha => true)
     end
     
-  end  
+  end
+  
 end

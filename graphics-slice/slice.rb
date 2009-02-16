@@ -8,8 +8,8 @@ module GraphicsSlice
     
     layout false
     
-    before :authenticate, :exclude => slice[:exclude_actions] || [:show]
-    before :normalize_params, :only => [:show, :delete]
+    before :authenticate, :exclude => slice[:exclude_actions] || [:show, :info]
+    before :normalize_params, :only => [:show, :info, :delete]
     
     # Common actions to delete graphics at their cached uri location
     
@@ -56,7 +56,7 @@ module GraphicsSlice
   end
   
   class Images < Slice
-    
+       
     # Show a sample of all known presets
     def index
       only_provides :html
@@ -78,7 +78,46 @@ module GraphicsSlice
         raise NotFound
       end
     end
-        
+    
+    # Return a JSON object with image information
+    #
+    # add &metadata=true for image metadata
+    # add &presets=true for preset url for this image
+    # add &relative=true for relative urls instead of absolute
+    def info(preset, source_path, format)
+      url_opts = { :storage => params[:storage], :preset => preset, :format => format }
+      relative_uri  = url_for_image(params[:relative_path], url_opts)
+      absolute_path = Merb.dir_for(:public) / relative_uri
+      base_url      = params[:relative] ? '' : (request.protocol + "://" + request.host)
+      
+      information = {}
+      information[:format]   = format
+      information[:preset]   = preset
+      information[:exists]   = File.file?(absolute_path)
+      information[:metadata] = slice.metadata_for(absolute_path) if information[:exists] && params[:metadata]
+            
+      if params[:presets]
+        preset_names.inject(information[:presets] ||= {}) do |presets, preset_name|
+          preset_uri = url_for_external_image(params[:relative_path], url_opts.merge(:preset => preset_name))
+          presets[preset_name] = base_url + preset_uri
+          presets
+        end
+      end
+      
+      self.content_type = :json
+      information.to_json
+    end
+    
+    # Return the internal url for the given image location.
+    def image_location
+      url_opts = { :storage => params[:storage] || 'default', :preset => params[:preset] || 'default', :format => params[:format] || 'jpg' }
+      raise BadRequest if request.raw_post.blank?
+      base_url  = params[:relative] ? '' : (request.protocol + "://" + request.host)
+      image_uri = base_url + url_for_image(request.raw_post.strip, url_opts)
+      self.status, headers["Location"] = 301, image_uri if params[:redirect]
+      image_uri
+    end
+    
     protected
     
     # A preset method needs to have a _preset postfix in its name and
@@ -96,19 +135,18 @@ module GraphicsSlice
         params[:storage]      = slice.hexdecode(params[:storage].reverse)
         params[:original_ext] = slice.hexdecode(params[:original_ext].reverse)
         storage_path  = slice.storage_locations[params[:storage]]
-        relative_path = "#{params[:filename]}#{params[:original_ext]}"
-        if storage_path && File.file?(file_path = storage_path / relative_path)
+        params[:relative_path] = "#{params[:filename]}#{params[:original_ext]}"
+        if storage_path && File.file?(file_path = storage_path / params[:relative_path])
           url_opts = { :storage => params[:storage], :preset => params[:preset], :format => params[:format] }
           raise NotFound unless valid_checksum?(file_path, params[:checksum], url_opts)
-          request.path == url_for_image(relative_path, url_opts)
-          params[:source_path] = file_path 
+          params[:source_path]  = file_path 
         end
       end
     end
     
     # The absolute path derived from the request where files will be stored
     def base_request_path
-      Merb.dir_for(:public) / slice_url(:graphics_slice_images_delete_all)
+      Merb.dir_for(:public) / slice_url(:images_delete_all)
     end
     
   end
@@ -133,28 +171,67 @@ module GraphicsSlice
       raise NotFound
     end
     
+    # Return a JSON object with image information
+    #
+    # add &metadata=true for image metadata
+    # add &presets=true for preset url for this image
+    # add &relative=true for relative urls instead of absolute
+    def info(preset, source_uri, format)
+      url_opts = { :storage => params[:storage], :preset => preset, :format => format }
+      relative_uri  = url_for_external_image(params[:relative_path], url_opts)
+      absolute_path = Merb.dir_for(:public) / relative_uri
+      base_url      = params[:relative] ? '' : (request.protocol + "://" + request.host)
+      
+      information = {}
+      information[:source]   = source_uri
+      information[:format]   = format
+      information[:preset]   = preset
+      information[:exists]   = File.file?(absolute_path)
+      information[:metadata] = slice.metadata_for(absolute_path) if information[:exists] && params[:metadata]
+            
+      if params[:presets]
+        preset_names.inject(information[:presets] ||= {}) do |presets, preset_name|
+          preset_uri = url_for_external_image(params[:relative_path], url_opts.merge(:preset => preset_name))
+          presets[preset_name] = base_url + preset_uri
+          presets
+        end
+      end
+      
+      self.content_type = :json
+      information.to_json
+    end
+    
+    # Return the internal url for the given image location.
+    def image_location
+      url_opts = { :storage => params[:storage] || 'default', :preset => params[:preset] || 'default', :format => params[:format] || 'jpg' }
+      raise BadRequest if request.raw_post.blank?
+      base_url  = params[:relative] ? '' : (request.protocol + "://" + request.host)
+      image_uri = base_url + url_for_external_image(request.raw_post.strip, url_opts)
+      self.status, headers["Location"] = 301, image_uri if params[:redirect]
+      image_uri
+    end
+    
     private
     
     def normalize_params
       params[:source_uri] = nil
-      params[:gravity]    = 'center' unless params[:gravity].in?('center', 'northwest', 'north', 'northeast', 'west', 'center', 'east', 'southwest', 'south', 'southeast')
       if params[:preset] && params[:format] && params[:storage] && params[:filename] && params[:original_ext]
+        params[:gravity]      = 'center' unless params[:gravity].in?('center', 'northwest', 'north', 'northeast', 'west', 'center', 'east', 'southwest', 'south', 'southeast')
         params[:storage]      = slice.hexdecode(params[:storage].reverse)
         params[:original_ext] = slice.hexdecode(params[:original_ext].reverse)
         if storage_uri = slice.storage_locations[params[:storage]]
           url_opts = { :storage => params[:storage], :preset => params[:preset], :format => params[:format] }
-          relative_path = "#{params[:filename]}#{params[:original_ext]}"
-          file_uri = storage_uri / relative_path       
+          params[:relative_path] = "#{params[:filename]}#{params[:original_ext]}"
+          file_uri = storage_uri / params[:relative_path]       
           raise NotFound unless valid_checksum?(file_uri, params[:checksum], url_opts)
-          request.path == url_for_external_image(relative_path, url_opts)
-          params[:source_uri] = file_uri
+          params[:source_uri]   = file_uri
         end
       end
     end
         
     # The absolute path derived from the request where files will be stored
     def base_request_path
-      Merb.dir_for(:public) / slice_url(:graphics_slice_external_delete_all)
+      Merb.dir_for(:public) / slice_url(:external_delete_all)
     end
     
   end
@@ -247,7 +324,7 @@ module GraphicsSlice
     
     # The absolute path derived from the request where files will be stored
     def base_request_path
-      Merb.dir_for(:public) / slice_url(:graphics_slice_textim_delete_all)
+      Merb.dir_for(:public) / slice_url(:textim_delete_all)
     end
     
   end

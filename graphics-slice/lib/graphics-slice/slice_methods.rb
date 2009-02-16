@@ -1,4 +1,20 @@
 module GraphicsSlice
+  
+  IMAGE_METADATA = [:width, :height, :filesize, :colors, :depth, :dimensions_in_mm, :resolution, :format, :label, :comment]
+  
+  # @return <Hash> Metadata for the specified image.
+  def self.metadata_for(filepath, *props)
+    props = props.empty? ? IMAGE_METADATA : props.flatten
+    if File.exists?(filepath)
+      im_info = ImMagick::ImageInfo.on(filepath)
+      props.inject({}) do |meta, property|
+        meta[property] = im_info[property]
+        meta
+      end
+    else
+      {}
+    end    
+  end
     
   # @return <Hash> Lookup of storage location names and absolute paths
   def self.storage_locations
@@ -59,6 +75,7 @@ module GraphicsSlice
       options.replace(defaults.merge(options))
       options[:qp]   ||= { :doc_id => options.delete(:doc_id) } if options[:doc_id]
       options[:base] ||= self[:path_prefix].blank? ? "/images" : "/#{self[:path_prefix]}/images"
+      options[:base] += '-info' if options[:info]
 
       checksum = Digest::MD5.hexdigest([absolute_path, options[:preset], options[:format], self[:secret]].compact.join)
       prefix   = ([options[:base], options[:preset]] + checksum.scan(/......../).map { |part| part.reverse }.reverse).join('/')
@@ -86,6 +103,7 @@ module GraphicsSlice
       options.replace(defaults.merge(options))
       options[:qp]   ||= { :doc_id => options.delete(:doc_id) } if options[:doc_id]
       options[:base] ||= self[:path_prefix].blank? ? "/external" : "/#{self[:path_prefix]}/external"
+      options[:base] += '-info' if options[:info]
       
       checksum = Digest::MD5.hexdigest([absolute_uri, options[:preset], options[:format], self[:secret]].compact.join)
       prefix   = ([options[:base], options[:preset]] + checksum.scan(/......../).map { |part| part.reverse }.reverse).join('/')

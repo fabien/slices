@@ -4,8 +4,16 @@ module GraphicsSlice
     
     # Helper methods to use in your controllers
     
+    def generate_textim(string, options = {}, &block)
+      GraphicsSlice.generate_textim(string, options, &block)
+    end
+    
     def generate_image(path, options = {}, &block)
       GraphicsSlice.url_for_image(path, options, &block)
+    end
+    
+    def url_for_textim(string, options = {})
+      GraphicsSlice.url_for_textim(string, options)
     end
     
     def url_for_image(path, options = {})
@@ -14,14 +22,6 @@ module GraphicsSlice
     
     def url_for_external_image(uri, options = {})
       GraphicsSlice.url_for_external_image(uri, options)
-    end
-    
-    def generate_textim(string, options = {}, &block)
-      GraphicsSlice.generate_textim(string, options, &block)
-    end
-    
-    def url_for_textim(string, options = {})
-      GraphicsSlice.url_for_textim(string, options)
     end
     
   end
