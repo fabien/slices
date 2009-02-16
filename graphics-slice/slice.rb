@@ -61,7 +61,7 @@ module GraphicsSlice
     def index
       only_provides :html
       preset_names.inject([]) do |coll, preset|
-        coll << %Q[<img src="#{url_for_image(Merb.dir_for(:public) / slice[:default_image], :preset => preset, :format => 'png')}" />]
+        coll << %Q[<img src="#{url_for_image(slice[:default_image], :preset => preset, :format => 'png', :storage => slice[:default_storage])}" />]
       end.join('<br />')
     end
     
@@ -91,13 +91,16 @@ module GraphicsSlice
     
     def normalize_params
       params[:source_path] = nil
-      params[:gravity]     = 'center' unless params[:gravity].in?('center', 'northwest', 'north', 'northeast', 'west', 'center', 'east', 'southwest', 'south', 'southeast')
       if params[:preset] && params[:format] && params[:storage] && params[:filename] && params[:original_ext]
+        params[:gravity]      = 'center' unless params[:gravity].in?('center', 'northwest', 'north', 'northeast', 'west', 'center', 'east', 'southwest', 'south', 'southeast')
         params[:storage]      = self.class.hexdecode(params[:storage].reverse)
         params[:original_ext] = self.class.hexdecode(params[:original_ext].reverse)
-        storage_path = self.class.storage_locations[params[:storage]] 
-        if storage_path && File.file?(file_path = storage_path / "#{params[:filename]}#{params[:original_ext]}") && 
-          request.path == url_for_image(file_path, :storage => params[:storage], :preset => params[:preset], :format => params[:format])
+        storage_path  = self.class.storage_locations[params[:storage]]
+        relative_path = "#{params[:filename]}#{params[:original_ext]}"
+        if storage_path && File.file?(file_path = storage_path / relative_path)
+          url_opts = { :storage => params[:storage], :preset => params[:preset], :format => params[:format] }
+          raise NotFound unless valid_checksum?(file_path, params[:checksum], url_opts)
+          request.path == url_for_image(relative_path, url_opts)
           params[:source_path] = file_path 
         end
       end
@@ -139,22 +142,16 @@ module GraphicsSlice
         params[:storage]      = self.class.hexdecode(params[:storage].reverse)
         params[:original_ext] = self.class.hexdecode(params[:original_ext].reverse)
         if storage_uri = self.class.storage_locations[params[:storage]]
-          file_uri = storage_uri / "#{params[:filename]}#{params[:original_ext]}"      
-          request.path == url_for_external_image(file_uri, :storage => params[:storage], :preset => params[:preset], :format => params[:format])
+          url_opts = { :storage => params[:storage], :preset => params[:preset], :format => params[:format] }
+          relative_path = "#{params[:filename]}#{params[:original_ext]}"
+          file_uri = storage_uri / relative_path       
+          raise NotFound unless valid_checksum?(file_uri, params[:checksum], url_opts)
+          request.path == url_for_external_image(relative_path, url_opts)
           params[:source_uri] = file_uri
         end
       end
     end
-    
-    def write_to_temp(data, prefix = 'graphics-slice', &block)
-      tmp = Tempfile.open(prefix)
-      tmp.write(data)
-      tmp.close
-      result = yield(tmp.path) if block_given?
-      tmp.unlink
-      result
-    end
-    
+        
     # The absolute path derived from the request where files will be stored
     def base_request_path
       Merb.dir_for(:public) / slice_url(:graphics_slice_external_delete_all)

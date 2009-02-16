@@ -69,6 +69,11 @@ module GraphicsSlice
       self.respond_to?(:"#{rubify(preset)}_preset")
     end
     
+    # Check whether the checksum matches
+    def valid_checksum?(absolute_path_or_uri, checksum, options = {})
+      self.class.valid_checksum?(absolute_path_or_uri, checksum, options)
+    end
+    
     # Stores the given file (responding to save) at the current request path
     def save_file(file)
       FileUtils.mkdir_p(File.dirname(full_request_path))
@@ -113,6 +118,16 @@ module GraphicsSlice
     def rubify(str)
       str.to_s.downcase.gsub(/\W/, ' ').strip.gsub(/(\s|-)+/, '_')
     end
+    
+    # Write to a Tempfile and work with the contents within the block.
+    def write_to_temp(data, prefix = 'graphics-slice', &block)
+      tmp = Tempfile.open(prefix)
+      tmp.write(data)
+      tmp.close
+      result = yield(tmp.path) if block_given?
+      tmp.unlink
+      result
+    end
 
     module ClassMethods
       
@@ -137,22 +152,26 @@ module GraphicsSlice
       
       # Return an encoded url for use with images - takes :path_prefix into account
       #
+      # @param path<String> A relative path, from :storage location.
+      #
       # @return <String> The encoded url.
       def url_for_image(path, options = {})
         options[:storage] ||= 'default'
-        if (storage_path = storage_locations[options[:storage]]) && (File.exists?(absolute_path = File.expand_path(path)))
-          if absolute_path.index(storage_path) == 0
-            defaults = { :preset => :default, :format => 'jpg' }
-            options.replace(defaults.merge(options))
-            options[:base] ||= self.slice[:path_prefix].blank? ? "/images" : "/#{self.slice[:path_prefix]}/images"
+        if storage_path = storage_locations[options[:storage]]
+          absolute_path = File.expand_path(storage_path / path)
+         
+          defaults = { :preset => :default, :format => 'jpg' }
+          options.replace(defaults.merge(options))
+          options[:qp]   ||= { :doc_id => options.delete(:doc_id) } if options[:doc_id]
+          options[:base] ||= self.slice[:path_prefix].blank? ? "/images" : "/#{self.slice[:path_prefix]}/images"
 
-            checksum = Digest::MD5.hexdigest([absolute_path, options[:preset], options[:format], slice[:secret]].compact.join)
-            prefix   = ([options[:base], options[:preset]] + checksum.scan(/......../).map { |part| part.reverse }.reverse).join('/')
-            dir = File.dirname(absolute_path.relative_path_from(storage_path))
-            dir = nil if dir == '.'
-            filename = File.join(*[dir, File.basename(path, '.*') + ".#{options[:format]}"].compact)
-            return prefix / "#{hexencode(options[:storage]).reverse}" / "#{hexencode(File.extname(path)).reverse}" / filename
-          end
+          checksum = Digest::MD5.hexdigest([absolute_path, options[:preset], options[:format], slice[:secret]].compact.join)
+          prefix   = ([options[:base], options[:preset]] + checksum.scan(/......../).map { |part| part.reverse }.reverse).join('/')
+          filename = File.join(*[File.dirname(path), File.basename(path, '.*') + ".#{options[:format]}"].compact)
+          
+          url = prefix / "#{hexencode(options[:storage]).reverse}" / "#{hexencode(File.extname(path)).reverse}" / filename
+          url += "?#{options[:qp].to_params}" if options[:qp].is_a?(Hash)
+          return url
         end
         return slice[:default_image]
       end
@@ -165,18 +184,29 @@ module GraphicsSlice
       def url_for_external_image(uri, options = {})
         options[:storage] ||= 'external'
         if (storage_uri = storage_locations[options[:storage]])
-          absolute_uri = storage_uri / uri
-          if absolute_uri.index(storage_uri) == 0
-            defaults = { :preset => :default, :format => 'jpg' }
-            options.replace(defaults.merge(options))
-            options[:base] ||= self.slice[:path_prefix].blank? ? "/external" : "/#{self.slice[:path_prefix]}/external"
-            checksum = Digest::MD5.hexdigest([absolute_uri, options[:preset], options[:format], slice[:secret]].compact.join)
-            prefix   = ([options[:base], options[:preset]] + checksum.scan(/......../).map { |part| part.reverse }.reverse).join('/')
-            filename = File.join(*[File.dirname(uri), File.basename(uri, '.*') + ".#{options[:format]}"].compact)         
-            return prefix / "#{hexencode(options[:storage]).reverse}" / "#{hexencode(File.extname(uri)).reverse}" / filename
-          end
+          absolute_uri  = storage_uri / uri
+          
+          defaults = { :preset => :default, :format => 'jpg' }
+          options.replace(defaults.merge(options))
+          options[:qp]   ||= { :doc_id => options.delete(:doc_id) } if options[:doc_id]
+          options[:base] ||= self.slice[:path_prefix].blank? ? "/external" : "/#{self.slice[:path_prefix]}/external"
+          
+          checksum = Digest::MD5.hexdigest([absolute_uri, options[:preset], options[:format], slice[:secret]].compact.join)
+          prefix   = ([options[:base], options[:preset]] + checksum.scan(/......../).map { |part| part.reverse }.reverse).join('/')
+          filename = File.join(*[File.dirname(uri), File.basename(uri, '.*') + ".#{options[:format]}"].compact)
+          
+          url = prefix / "#{hexencode(options[:storage]).reverse}" / "#{hexencode(File.extname(uri)).reverse}" / filename
+          url += "?#{options[:qp].to_params}" if options[:qp].is_a?(Hash)
+          return url
         end
         return slice[:default_image]
+      end
+      
+      # Ensure checksum match for path or uri.
+      def valid_checksum?(absolute_path_or_uri, checksum, options = {})
+        computed_checksum   = Digest::MD5.hexdigest([absolute_path_or_uri, options[:preset], options[:format], slice[:secret]].compact.join)
+        normalised_checksum = checksum.split('/').reverse.map { |s| s.reverse }.join
+        normalised_checksum == computed_checksum
       end
       
       # Generate an image by triggering a textim GET request
