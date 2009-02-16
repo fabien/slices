@@ -8,6 +8,7 @@ if defined?(Merb::Plugins)
   require 'uri'
   require 'rest_client'
   
+  require 'graphics-slice/slice_methods'
   require 'graphics-slice/controller_mixin'
   
   Merb::Plugins.add_rakefiles "graphics-slice/merbtasks", "graphics-slice/slicetasks"

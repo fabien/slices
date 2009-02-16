@@ -93,9 +93,9 @@ module GraphicsSlice
       params[:source_path] = nil
       if params[:preset] && params[:format] && params[:storage] && params[:filename] && params[:original_ext]
         params[:gravity]      = 'center' unless params[:gravity].in?('center', 'northwest', 'north', 'northeast', 'west', 'center', 'east', 'southwest', 'south', 'southeast')
-        params[:storage]      = self.class.hexdecode(params[:storage].reverse)
-        params[:original_ext] = self.class.hexdecode(params[:original_ext].reverse)
-        storage_path  = self.class.storage_locations[params[:storage]]
+        params[:storage]      = slice.hexdecode(params[:storage].reverse)
+        params[:original_ext] = slice.hexdecode(params[:original_ext].reverse)
+        storage_path  = slice.storage_locations[params[:storage]]
         relative_path = "#{params[:filename]}#{params[:original_ext]}"
         if storage_path && File.file?(file_path = storage_path / relative_path)
           url_opts = { :storage => params[:storage], :preset => params[:preset], :format => params[:format] }
@@ -139,9 +139,9 @@ module GraphicsSlice
       params[:source_uri] = nil
       params[:gravity]    = 'center' unless params[:gravity].in?('center', 'northwest', 'north', 'northeast', 'west', 'center', 'east', 'southwest', 'south', 'southeast')
       if params[:preset] && params[:format] && params[:storage] && params[:filename] && params[:original_ext]
-        params[:storage]      = self.class.hexdecode(params[:storage].reverse)
-        params[:original_ext] = self.class.hexdecode(params[:original_ext].reverse)
-        if storage_uri = self.class.storage_locations[params[:storage]]
+        params[:storage]      = slice.hexdecode(params[:storage].reverse)
+        params[:original_ext] = slice.hexdecode(params[:original_ext].reverse)
+        if storage_uri = slice.storage_locations[params[:storage]]
           url_opts = { :storage => params[:storage], :preset => params[:preset], :format => params[:format] }
           relative_path = "#{params[:filename]}#{params[:original_ext]}"
           file_uri = storage_uri / relative_path       

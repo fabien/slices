@@ -5,23 +5,23 @@ module GraphicsSlice
     # Helper methods to use in your controllers
     
     def generate_image(path, options = {}, &block)
-      GraphicsSlice::Slice.url_for_image(path, options, &block)
+      GraphicsSlice.url_for_image(path, options, &block)
     end
     
     def url_for_image(path, options = {})
-      GraphicsSlice::Slice.url_for_image(path, options)
+      GraphicsSlice.url_for_image(path, options)
     end
     
     def url_for_external_image(uri, options = {})
-      GraphicsSlice::Slice.url_for_external_image(uri, options)
+      GraphicsSlice.url_for_external_image(uri, options)
     end
     
     def generate_textim(string, options = {}, &block)
-      GraphicsSlice::Slice.generate_textim(string, options, &block)
+      GraphicsSlice.generate_textim(string, options, &block)
     end
     
     def url_for_textim(string, options = {})
-      GraphicsSlice::Slice.url_for_textim(string, options)
+      GraphicsSlice.url_for_textim(string, options)
     end
     
   end
@@ -130,85 +130,7 @@ module GraphicsSlice
     end
 
     module ClassMethods
-      
-      def self.extended(base)
-        base.class_inheritable_accessor :_storage_locations
-      end
-      
-      # @return <Hash> Lookup of storage location paths and absolute paths
-      def storage_locations
-        self._storage_locations = slice[:storage_locations] || {} unless _storage_locations
-        self._storage_locations
-      end
-      
-      # Generate an image by triggering an image GET request
-      #
-      # @return <Merb::Controller> The controller that processed the request.
-      def generate_image(path, options = {}, &block)
-        url = url_for_image(path, options)
-        rack = Rack::MockRequest.new(Merb::Rack::Application.new)
-        rack.get(url, options[:params] || {}, options[:env] || {}, &block)
-      end
-      
-      # Return an encoded url for use with images - takes :path_prefix into account
-      #
-      # @param path<String> A relative path, from :storage location.
-      #
-      # @return <String> The encoded url.
-      def url_for_image(path, options = {})
-        options[:storage] ||= 'default'
-        if storage_path = storage_locations[options[:storage]]
-          
-          if options[:absolute]
-            absolute_path = path
-            path = absolute_path.relative_path_from(storage_path)
-          else
-            absolute_path = File.expand_path(storage_path / path)
-          end
-         
-          defaults = { :preset => :default, :format => 'jpg' }
-          options.replace(defaults.merge(options))
-          options[:qp]   ||= { :doc_id => options.delete(:doc_id) } if options[:doc_id]
-          options[:base] ||= self.slice[:path_prefix].blank? ? "/images" : "/#{self.slice[:path_prefix]}/images"
-
-          checksum = Digest::MD5.hexdigest([absolute_path, options[:preset], options[:format], slice[:secret]].compact.join)
-          prefix   = ([options[:base], options[:preset]] + checksum.scan(/......../).map { |part| part.reverse }.reverse).join('/')
-          dirname  = File.dirname(path)
-          filename = File.join(*[dirname == '.' ? nil : dirname, File.basename(path, '.*') + ".#{options[:format]}"].compact)
-          
-          url = prefix / "#{hexencode(options[:storage]).reverse}" / "#{hexencode(File.extname(path)).reverse}" / filename
-          url += "?#{options[:qp].to_params}" if options[:qp].is_a?(Hash)
-          return url
-        end
-        return slice[:default_image]
-      end
-      
-      # Return an encoded url for use with remote images - takes :path_prefix into account
-      # 
-      # @param uri<String> A relative url on the remote server (see :storage for server).
-      #
-      # @return <String> The encoded url.
-      def url_for_external_image(uri, options = {})
-        options[:storage] ||= 'external'
-        if (storage_uri = storage_locations[options[:storage]])
-          absolute_uri  = storage_uri / uri
-          
-          defaults = { :preset => :default, :format => 'jpg' }
-          options.replace(defaults.merge(options))
-          options[:qp]   ||= { :doc_id => options.delete(:doc_id) } if options[:doc_id]
-          options[:base] ||= self.slice[:path_prefix].blank? ? "/external" : "/#{self.slice[:path_prefix]}/external"
-          
-          checksum = Digest::MD5.hexdigest([absolute_uri, options[:preset], options[:format], slice[:secret]].compact.join)
-          prefix   = ([options[:base], options[:preset]] + checksum.scan(/......../).map { |part| part.reverse }.reverse).join('/')
-          filename = File.join(*[File.dirname(uri), File.basename(uri, '.*') + ".#{options[:format]}"].compact)
-          
-          url = prefix / "#{hexencode(options[:storage]).reverse}" / "#{hexencode(File.extname(uri)).reverse}" / filename
-          url += "?#{options[:qp].to_params}" if options[:qp].is_a?(Hash)
-          return url
-        end
-        return slice[:default_image]
-      end
-      
+                 
       # Ensure checksum match for path or uri.
       def valid_checksum?(absolute_path_or_uri, checksum, options = {})
         computed_checksum   = Digest::MD5.hexdigest([absolute_path_or_uri, options[:preset], options[:format], slice[:secret]].compact.join)
@@ -216,31 +138,6 @@ module GraphicsSlice
         normalised_checksum == computed_checksum
       end
       
-      # Generate an image by triggering a textim GET request
-      #
-      # @return <Merb::Controller> The controller that processed the request.
-      def generate_textim(string, options = {}, &block)
-        url, query_param = url_for_textim(string, options.merge(:return_qp => true))        
-        rack = Rack::MockRequest.new(Merb::Rack::Application.new)
-        rack.get(url, (options[:params] || {}).merge(:t => query_param), options[:env] || {}, &block)
-      end
-
-      # Return an encoded url for use with textim - takes :path_prefix into account
-      #
-      # @return <String> The encoded url.
-      def url_for_textim(string, options = {})
-        defaults = { :preset => :default, :format => 'png', :append_qp => true }
-        options.replace(defaults.merge(options))
-        options[:base] ||= self.slice[:path_prefix].blank? ? "/textim" : "/#{self.slice[:path_prefix]}/textim"
-        
-        string   = Iconv::conv('iso-8859-1', 'utf-8', string)
-        checksum = Digest::MD5.hexdigest([string, options[:preset], options[:format]].compact.join)
-        prefix   = ([options[:base], options[:preset]] + checksum.scan(/......../).map { |part| part.reverse }.reverse).join('/')
-        filename = prefix + ".#{options[:format]}"
-        return [filename, hexencode(string)] if options[:return_qp]
-        options[:append_qp] ? filename + "?t=#{hexencode(string)}" : filename
-      end
-
       # Extract textim formatted data from the incoming url params
       def extract_character_data_from_url(url, options = {})
         if matches = url.match(/\/([^\/]+)\/([a-f0-9]{8})\/([a-f0-9]{8})\/([a-f0-9]{8})\/([a-f0-9]{8})\.(\w+)\?t=([a-f0-9]+)$/)
@@ -259,7 +156,9 @@ module GraphicsSlice
         string = [string].pack('H*')
         raise 'invalid character data' unless string.length <= 256
         if options.key?(:checksum) || options.key?(:filename) # if a filename is given, use this for a checksum match
-          raise 'checksum mismatch' unless Digest::MD5.hexdigest([string, options[:preset], options[:format]].compact.join) == options[:checksum] || options[:filename].split('/').reverse.map { |s| s.reverse }.join
+          request_checksum  = options[:checksum] || options[:filename].split('/').reverse.map { |s| s.reverse }.join
+          computed_checksum = Digest::MD5.hexdigest([string, options[:preset], options[:format]].compact.join)
+          raise 'checksum mismatch' unless computed_checksum == request_checksum
         end
         Iconv::conv('utf-8', 'iso-8859-1', string)
       end
@@ -273,17 +172,7 @@ module GraphicsSlice
       def preset_names
         preset_methods.map { |m| m[/^(.*?)_preset$/, 1] }.sort
       end
-      
-      # Hex encode
-      def hexencode(string)
-        string.to_s.unpack('H*').to_s
-      end
-
-      # Hex decode
-      def hexdecode(string)
-        [string.to_s].pack('H*')
-      end
-      
+            
       private
       
       # Make sure no *_preset methods are callable actions
