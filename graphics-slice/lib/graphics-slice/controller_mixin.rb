@@ -158,7 +158,13 @@ module GraphicsSlice
       def url_for_image(path, options = {})
         options[:storage] ||= 'default'
         if storage_path = storage_locations[options[:storage]]
-          absolute_path = File.expand_path(storage_path / path)
+          
+          if options[:absolute]
+            absolute_path = path
+            path = absolute_path.relative_path_from(storage_path)
+          else
+            absolute_path = File.expand_path(storage_path / path)
+          end
          
           defaults = { :preset => :default, :format => 'jpg' }
           options.replace(defaults.merge(options))
@@ -167,7 +173,8 @@ module GraphicsSlice
 
           checksum = Digest::MD5.hexdigest([absolute_path, options[:preset], options[:format], slice[:secret]].compact.join)
           prefix   = ([options[:base], options[:preset]] + checksum.scan(/......../).map { |part| part.reverse }.reverse).join('/')
-          filename = File.join(*[File.dirname(path), File.basename(path, '.*') + ".#{options[:format]}"].compact)
+          dirname  = File.dirname(path)
+          filename = File.join(*[dirname == '.' ? nil : dirname, File.basename(path, '.*') + ".#{options[:format]}"].compact)
           
           url = prefix / "#{hexencode(options[:storage]).reverse}" / "#{hexencode(File.extname(path)).reverse}" / filename
           url += "?#{options[:qp].to_params}" if options[:qp].is_a?(Hash)
